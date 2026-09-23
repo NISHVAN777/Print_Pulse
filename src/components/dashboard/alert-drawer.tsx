@@ -17,15 +17,16 @@ export function AlertDrawer() {
             <SheetHeader>
               <SheetTitle>{selected.headline}</SheetTitle>
               <SheetDescription>
-                {selected.publication} · {selected.city} · {selected.language}. Chain of custody for{" "}
-                {selected.chain.alertId}.
+                {selected.previewUrl
+                  ? `${selected.fileName ?? selected.publication}. Summary, sentiment, and the original page.`
+                  : `${selected.publication} · ${selected.city} · ${selected.language}. Chain of custody for ${selected.chain.alertId}.`}
               </SheetDescription>
             </SheetHeader>
             <div className="space-y-4 px-5 py-4">
               <DigitalTwinViewer mention={selected} compact />
               <Button asChild>
                 <Link href={`/dashboard/trace?mention=${selected.id}`} onClick={closeDrawer}>
-                  Open full Digital Twin
+                  {selected.previewUrl ? "Open full page" : "Open full Digital Twin"}
                 </Link>
               </Button>
             </div>

@@ -9,6 +9,7 @@ from models.schemas import AlertOut, ChainOut, PageOut, TextStageOut, TwinOut, U
 from models.tables import Mention, Upload
 from services.clock import stamp
 from services.errors import ApiError
+from services.news_brief import extract_pdf_text
 from services.sample_trace import display_name, new_id, sample_mention
 
 PDF_TYPES = {"application/pdf", "application/x-pdf", ""}
@@ -52,7 +53,11 @@ async def save_upload(db: Session, file: UploadFile) -> UploadOut:
         raise
 
     uploaded_at = stamp()
-    mention = sample_mention(file_name, uploaded_at, upload_id)
+    try:
+        page_text = extract_pdf_text(destination)
+    except Exception:
+        page_text = ""
+    mention = sample_mention(file_name, uploaded_at, upload_id, page_text)
     upload = Upload(
         id=upload_id,
         file_name=file_name,

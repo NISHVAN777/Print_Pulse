@@ -1,12 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { createContext, useContext, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Bell, FileImage, Languages, ScanText, ShieldAlert } from "lucide-react";
-import type { Mention, TwinStage } from "@/types";
-import { cn, formatClock, formatDateTime } from "@/lib/utils";
-import { Badge } from "@/components/ui/badge";
+import { useOptionalDashboard } from "@/components/dashboard/dashboard-context";
 import { NewspaperPage } from "@/components/twin/newspaper-page";
+import { Badge } from "@/components/ui/badge";
+import { PAGE_LANGUAGES, nativeNameFor } from "@/lib/languages";
+import { renderInLanguage } from "@/lib/translate";
+import type { Language, Mention, TwinStage } from "@/types";
+import { cn, formatClock, formatDateTime } from "@/lib/utils";
+
+const LocalLanguage = createContext<{
+  language: Language;
+  setLanguage: (language: Language) => void;
+  view: Partial<Mention> | null;
+  setView: (view: Partial<Mention> | null) => void;
+} | null>(null);
 
 const STAGES: { id: TwinStage; label: string; hint: string; icon: typeof Bell }[] = [
   { id: "alert", label: "Alert", hint: "What reached the desk", icon: Bell },
@@ -26,17 +36,38 @@ export function DigitalTwinViewer({
   mention: Mention;
   compact?: boolean;
 }) {
-  const [stage, setStage] = useState<TwinStage>(mention.sampleTrace ? "page" : "alert");
+  const [stage, setStage] = useState<TwinStage>("alert");
   const [trackedId, setTrackedId] = useState(mention.id);
+  const [localLanguage, setLocalLanguage] = useState<Language>(mention.language);
+  const [localView, setLocalView] = useState<Partial<Mention> | null>(null);
   const reduce = useReducedMotion();
 
   if (mention.id !== trackedId) {
     setTrackedId(mention.id);
-    if (mention.sampleTrace) setStage("page");
+    setStage("alert");
+    setLocalLanguage(mention.language);
+    setLocalView(null);
   }
+
+  const choice = {
+    language: localLanguage,
+    setLanguage: setLocalLanguage,
+    view: localView,
+    setView: setLocalView,
+  };
+
+  if (mention.previewUrl) {
+    return (
+      <LocalLanguage.Provider value={choice}>
+        <UploadedRead mention={mention} compact={compact} />
+      </LocalLanguage.Provider>
+    );
+  }
+
   const index = STAGES.findIndex((item) => item.id === stage);
 
   return (
+    <LocalLanguage.Provider value={choice}>
     <div className={cn("flex flex-col", compact ? "gap-4" : "gap-6")}>
       <ol className={cn("grid grid-cols-4 gap-2", compact && "grid-cols-2 sm:grid-cols-4")}>
         {STAGES.map((item, step) => {
@@ -119,25 +150,88 @@ export function DigitalTwinViewer({
         {mention.chain.alertId} → {mention.chain.translationId} → {mention.chain.ocrId} → {mention.chain.pageId}
       </p>
     </div>
+    </LocalLanguage.Provider>
+  );
+}
+
+const SENTIMENT_LABEL = {
+  positive: "Positive",
+  neutral: "Neutral",
+  negative: "Negative",
+} as const;
+
+function useArticle(mention: Mention) {
+  const dashboard = useOptionalDashboard();
+  const local = useContext(LocalLanguage);
+  if (!dashboard && local?.view) return { ...mention, ...local.view, language: local.language };
+  return mention;
+}
+
+function UploadedRead({ mention, compact }: { mention: Mention; compact?: boolean }) {
+  const article = useArticle(mention);
+  return (
+    <div className={cn("flex flex-col", compact ? "gap-4" : "gap-6")}>
+      <section className="rounded-2xl border border-border bg-card p-4 shadow-soft sm:p-6">
+        <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-[#7C3AED] dark:text-brand-violet">
+          Summary
+        </p>
+        <p className="mt-3 max-w-2xl text-[15px] leading-7">{article.summary}</p>
+        <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-border pt-4">
+          <Badge variant={article.sentiment}>{SENTIMENT_LABEL[article.sentiment]}</Badge>
+          <div className="flex items-center gap-2">
+            <div className="h-1.5 w-24 overflow-hidden rounded-full bg-secondary">
+              <div
+                className="h-full rounded-full bg-[#7C3AED]"
+                style={{ width: `${article.confidence}%` }}
+              />
+            </div>
+            <span className="text-sm font-medium tabular-nums">{article.confidence}% confidence</span>
+          </div>
+        </div>
+        {article.reviewFlag && (
+          <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">{article.reviewFlag}</p>
+        )}
+      </section>
+      <OcrTranslation mention={mention} />
+      <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-soft">
+        <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3 sm:px-5">
+          <p className="text-xs font-medium text-muted-foreground">Original page</p>
+          <a
+            href={mention.previewUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="text-xs font-medium text-[#1E3A8A] hover:underline dark:text-brand-violet"
+          >
+            Open PDF
+          </a>
+        </div>
+        <iframe
+          title={`${mention.fileName ?? mention.publication} original page`}
+          src={mention.previewUrl}
+          className={cn("w-full bg-white", compact ? "h-72" : "h-[36rem]")}
+        />
+      </section>
+    </div>
   );
 }
 
 function AlertPane({ mention }: { mention: Mention }) {
+  const article = useArticle(mention);
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <Badge variant={mention.sentiment} className="capitalize">
-          {mention.sentiment}
+        <Badge variant={article.sentiment} className="capitalize">
+          {article.sentiment}
         </Badge>
-        <Badge variant="violet">{mention.confidence}% confidence</Badge>
+        <Badge variant="violet">{article.confidence}% confidence</Badge>
         {mention.channels.map((channel) => (
           <Badge key={channel} variant="outline" className="capitalize">
             {channel}
           </Badge>
         ))}
       </div>
-      <h3 className="text-xl font-semibold leading-snug">{mention.headline}</h3>
-      <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">{mention.summary}</p>
+      <h3 className="text-xl font-semibold leading-snug">{article.headline}</h3>
+      <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">{article.summary}</p>
       <dl className="grid grid-cols-2 gap-4 border-t border-border pt-4 text-sm sm:grid-cols-4">
         <Meta label="Detected" value={formatClock(mention.detectedAt)} />
         <Meta label="Published" value={formatClock(mention.publishedAt)} />
@@ -149,25 +243,132 @@ function AlertPane({ mention }: { mention: Mention }) {
 }
 
 function TranslationPane({ mention }: { mention: Mention }) {
+  const article = useArticle(mention);
+  const language = useShownLanguage(mention);
   return (
     <div className="space-y-4">
+      <PageLanguageSelect mention={mention} inputId={`translation-language-${mention.id}`} />
       <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-[#7C3AED] dark:text-brand-violet">
-        English · {mention.chain.translationId}
+        Translation · {nativeNameFor(language)} · {mention.chain.translationId}
       </p>
-      <p className="max-w-2xl text-[15px] leading-7">{highlightBrand(mention.translation, mention.brand)}</p>
-      {mention.reviewFlag && <ReviewNote text={mention.reviewFlag} />}
+      <p className="max-w-2xl text-[15px] leading-7">{highlightBrand(article.translation, article.brand)}</p>
+      {article.reviewFlag && <ReviewNote text={article.reviewFlag} />}
     </div>
   );
 }
 
 function OcrPane({ mention }: { mention: Mention }) {
+  const article = useArticle(mention);
+  const language = useShownLanguage(mention);
   return (
     <div className="space-y-4">
+      <PageLanguageSelect mention={mention} inputId={`ocr-language-${mention.id}`} />
       <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-[#7C3AED] dark:text-brand-violet">
-        {mention.nativeName} · {mention.language} · {mention.chain.ocrId}
+        {nativeNameFor(language)} · {language} · {mention.chain.ocrId}
       </p>
-      <p className="font-print max-w-2xl text-base leading-8">{mention.ocrText}</p>
-      {mention.reviewFlag && <ReviewNote text={mention.reviewFlag} />}
+      <p className="font-print max-w-2xl text-base leading-8">{article.ocrText}</p>
+      {article.reviewFlag && <ReviewNote text={article.reviewFlag} />}
+    </div>
+  );
+}
+
+function OcrTranslation({ mention }: { mention: Mention }) {
+  const article = useArticle(mention);
+  const language = useShownLanguage(mention);
+  return (
+    <section className="rounded-2xl border border-border bg-card p-4 shadow-soft sm:p-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-[#7C3AED] dark:text-brand-violet">
+          OCR and translation
+        </p>
+        <PageLanguageSelect mention={mention} inputId={`upload-language-${mention.id}`} />
+      </div>
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-muted-foreground">
+            OCR · {nativeNameFor(language)}
+          </p>
+          <p className="font-print mt-2 max-h-48 overflow-auto text-sm leading-7">{article.ocrText}</p>
+        </div>
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-muted-foreground">
+            Translation · {nativeNameFor(language)}
+          </p>
+          <p className="mt-2 max-h-48 overflow-auto text-sm leading-7">{article.translation}</p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function useShownLanguage(mention: Mention) {
+  const dashboard = useOptionalDashboard();
+  const local = useContext(LocalLanguage);
+  return dashboard ? mention.language : (local?.language ?? mention.language);
+}
+
+function PageLanguageSelect({ mention, inputId }: { mention: Mention; inputId: string }) {
+  const dashboard = useOptionalDashboard();
+  const local = useContext(LocalLanguage);
+  const language = useShownLanguage(mention);
+  const [trackedId, setTrackedId] = useState(mention.id);
+  const [pending, setPending] = useState<Language | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const run = useRef(0);
+
+  if (mention.id !== trackedId) {
+    setTrackedId(mention.id);
+    setPending(null);
+    setBusy(false);
+    setError(null);
+  }
+
+  async function choose(next: Language) {
+    if (next === (pending ?? language) || busy) return;
+    setError(null);
+    const request = ++run.current;
+    setPending(next);
+    setBusy(true);
+    try {
+      const patch = await renderInLanguage(mention, next);
+      if (run.current !== request) return;
+      if (dashboard) dashboard.updateMention(mention.id, patch);
+      else {
+        local?.setLanguage(next);
+        local?.setView(patch);
+      }
+    } catch {
+      if (run.current !== request) return;
+      setError(`Could not show this page in ${next}.`);
+    } finally {
+      if (run.current === request) {
+        setPending(null);
+        setBusy(false);
+      }
+    }
+  }
+
+  return (
+    <div className="max-w-xs">
+      <label htmlFor={inputId} className="text-xs font-medium text-muted-foreground">
+        OCR language
+      </label>
+      <select
+        id={inputId}
+        value={pending ?? language}
+        disabled={busy}
+        onChange={(event) => void choose(event.target.value as Language)}
+        className="mt-1.5 h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground disabled:opacity-60"
+      >
+        {PAGE_LANGUAGES.map((item) => (
+          <option key={item.id} value={item.id}>
+            {item.id} · {item.nativeName}
+          </option>
+        ))}
+      </select>
+      {busy && <p className="mt-1.5 text-xs text-muted-foreground">Translating into {pending ?? language}…</p>}
+      {error && <p className="mt-1.5 text-xs text-destructive">{error}</p>}
     </div>
   );
 }

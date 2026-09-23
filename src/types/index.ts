@@ -56,6 +56,14 @@ export interface Mention {
   previewUrl?: string;
   /** OCR and translation are sample text, not a read of the file. */
   sampleTrace?: boolean;
+  /** Page text before a language switch, so later choices translate from the original. */
+  textBase?: {
+    language: Language;
+    ocrText: string;
+    translation: string;
+    summary: string;
+    headline: string;
+  };
 }
 
 /** A PDF added from the desk during this browser session. */

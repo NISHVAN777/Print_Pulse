@@ -1,4 +1,5 @@
 import { TODAY } from "@/data/mock";
+import { detectLanguage, type NewsBrief } from "@/lib/news-brief";
 import type { Mention } from "@/types";
 
 const MAX_PDF_BYTES = 32 * 1024 * 1024;
@@ -31,7 +32,7 @@ export function isAllowedPdfCandidate(file: File) {
   return mime === "application/pdf" || mime === "application/x-pdf";
 }
 
-function labelFromFile(name: string) {
+export function labelFromFile(name: string) {
   const stem = name
     .replace(/\.pdf$/i, "")
     .replace(/[_\-.]+/g, " ")
@@ -46,8 +47,8 @@ function deskStamp(now = new Date()) {
   return `${TODAY}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
 }
 
-/** Sample chain so an uploaded PDF can open in Digital Twin before a live read exists. */
-export function buildUploadedMention(file: File, previewUrl: string): Mention {
+/** A mention built from the text actually read out of the uploaded PDF. */
+export function buildUploadedMention(file: File, previewUrl: string, brief: NewsBrief): Mention {
   const label = labelFromFile(file.name);
   const suffix =
     typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -68,16 +69,16 @@ export function buildUploadedMention(file: File, previewUrl: string): Mention {
     publication: label,
     masthead: label,
     city: "Desk upload",
-    language: "English",
-    nativeName: "English",
-    sentiment: "neutral",
-    confidence: 90,
-    reviewFlag: "Sample text for this demo. The PDF was not read; a live desk would replace this with the scan.",
-    headline: `${label} is ready to trace`,
-    nativeHeadline: label,
-    summary: `${file.name} was added from this browser. The alert, translation, and OCR steps use sample text so the chain can be opened now. The original PDF is attached to the page.`,
-    translation: `${label} was added as a PDF. This English paragraph is sample translation, so the desk can walk alert, translation, OCR, and the original page before a live read is connected. Figures on the printed page are not claimed here. The brand keyword PayU is marked the way a real alert would mark it.`,
-    ocrText: `Sample OCR for ${file.name}. The uploaded PDF is attached on the original-page step. A live desk would replace this paragraph with the text read from the scan.`,
+    language: brief.language,
+    nativeName: brief.nativeName,
+    sentiment: brief.sentiment,
+    confidence: brief.confidence,
+    reviewFlag: brief.reviewFlag,
+    headline: brief.headline,
+    nativeHeadline: brief.headline,
+    summary: brief.summary,
+    translation: brief.summary,
+    ocrText: brief.sourceText || `No selectable text was found in ${file.name}.`,
     pageNumber: 1,
     edition: "Upload",
     column: "Uploaded PDF",
@@ -86,9 +87,16 @@ export function buildUploadedMention(file: File, previewUrl: string): Mention {
     latencyMinutes: 1,
     sourceKind: "epaper",
     channels: ["email"],
-    keywords: ["PayU"],
+    keywords: brief.keywords,
     fileName: file.name,
     previewUrl,
     sampleTrace: true,
+    textBase: {
+      language: detectLanguage(brief.sourceText || brief.summary).language,
+      ocrText: brief.sourceText || brief.summary,
+      translation: brief.summary,
+      summary: brief.summary,
+      headline: brief.headline,
+    },
   };
 }

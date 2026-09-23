@@ -1,13 +1,11 @@
-"""Sample Digital Twin text for an uploaded PDF.
-
-The file is stored. OCR and translation are placeholders until a live read exists.
-"""
+"""Digital Twin fields for an uploaded PDF, scored from the text in the file."""
 
 import json
 import re
 import uuid
 
 from models.tables import Mention
+from services.news_brief import brief_from_text
 
 BRAND = "PayU"
 
@@ -34,10 +32,20 @@ def display_name(raw_name: str | None) -> str:
     return name[:180]
 
 
-def sample_mention(file_name: str, uploaded_at: str, mention_id: str | None = None) -> Mention:
+def sample_mention(
+    file_name: str,
+    uploaded_at: str,
+    mention_id: str | None = None,
+    text: str = "",
+) -> Mention:
     label = label_from_file(file_name)
     mention_id = mention_id or new_id("upl")
     suffix = mention_id.removeprefix("upl-")
+    brief = brief_from_text(text, label)
+    source = str(brief["source_text"]) or f"No selectable text was found in {file_name}."
+    keywords = brief["keywords"] if isinstance(brief["keywords"], list) else []
+    raw_confidence = brief["confidence"]
+    confidence = raw_confidence if isinstance(raw_confidence, int) else 24
     return Mention(
         id=mention_id,
         page_id=f"page_upload_{suffix}",
@@ -48,27 +56,16 @@ def sample_mention(file_name: str, uploaded_at: str, mention_id: str | None = No
         publication=label,
         masthead=label,
         city="Desk upload",
-        language="English",
-        native_name="English",
-        sentiment="neutral",
-        confidence=90,
-        review_flag="Sample text for this demo. The PDF was not read; a live desk would replace this with the scan.",
-        headline=f"{label} is ready to trace",
-        native_headline=label,
-        summary=(
-            f"{file_name} was added from this browser. The alert, translation, and OCR steps "
-            "use sample text so the chain can be opened now. The original PDF is attached to the page."
-        ),
-        translation=(
-            f"{label} was added as a PDF. This English paragraph is sample translation, so the desk "
-            "can walk alert, translation, OCR, and the original page before a live read is connected. "
-            "Figures on the printed page are not claimed here. The brand keyword PayU is marked the "
-            "way a real alert would mark it."
-        ),
-        ocr_text=(
-            f"Sample OCR for {file_name}. The uploaded PDF is attached on the original-page step. "
-            "A live desk would replace this paragraph with the text read from the scan."
-        ),
+        language=str(brief["language"]),
+        native_name=str(brief["native_name"]),
+        sentiment=str(brief["sentiment"]),
+        confidence=confidence,
+        review_flag=brief["review_flag"] if isinstance(brief["review_flag"], str) else None,
+        headline=str(brief["headline"]),
+        native_headline=str(brief["headline"]),
+        summary=str(brief["summary"]),
+        translation=str(brief["summary"]),
+        ocr_text=source,
         page_number=1,
         edition="Upload",
         column_name="Uploaded PDF",
@@ -77,7 +74,7 @@ def sample_mention(file_name: str, uploaded_at: str, mention_id: str | None = No
         latency_minutes=1,
         source_kind="epaper",
         channels_json=json.dumps(["email"]),
-        keywords_json=json.dumps([BRAND]),
+        keywords_json=json.dumps(keywords),
         file_name=file_name,
         sample_trace=True,
     )

@@ -8,6 +8,7 @@ dist
 .env*.local
 next-env.d.ts
 tsconfig.tsbuildinfo
+public/pdf.worker.min.mjs
 
 __pycache__/
 *.py[cod]

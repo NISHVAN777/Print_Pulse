@@ -6,14 +6,15 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Check, FileText, Loader2, Upload } from "lucide-react";
 import { useDashboard } from "@/components/dashboard/dashboard-context";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { PAGE_LANGUAGES } from "@/lib/languages";
+import type { NewsBrief } from "@/lib/news-brief";
+import { readNewsBrief } from "@/lib/read-pdf";
+import { renderInLanguage } from "@/lib/translate";
+import type { Language } from "@/types";
 import { formatBytes, hasPdfSignature, isAllowedPdfCandidate, pdfSizeLimit } from "@/lib/uploaded-mention";
 import { cn } from "@/lib/utils";
 
-const STEPS = [
-  "Checking the PDF",
-  "Attaching the page to this desk",
-  "Preparing a sample trace",
-] as const;
+const STEPS = ["Checking the PDF", "Reading the page", "Scoring sentiment"] as const;
 
 type Phase = "idle" | "processing" | "success";
 
@@ -26,7 +27,7 @@ export function UploadEpaperDialog({
 }) {
   const router = useRouter();
   const reduce = useReducedMotion();
-  const { addUpload } = useDashboard();
+  const { addUpload, updateMention } = useDashboard();
   const inputRef = useRef<HTMLInputElement>(null);
   const runId = useRef(0);
   const pending = useRef<number | null>(null);
@@ -37,17 +38,19 @@ export function UploadEpaperDialog({
   const [fileLabel, setFileLabel] = useState<{ name: string; size: number } | null>(null);
   const [step, setStep] = useState(0);
   const [live, setLive] = useState("");
+  const [language, setLanguage] = useState<Language | "detect">("detect");
   const wasOpen = useRef(open);
 
   if (open && !wasOpen.current) {
     wasOpen.current = true;
-    if (phase !== "idle" || error || fileLabel || dragging || step !== 0 || live) {
+    if (phase !== "idle" || error || fileLabel || dragging || step !== 0 || live || language !== "detect") {
       setPhase("idle");
       setDragging(false);
       setError(null);
       setFileLabel(null);
       setStep(0);
       setLive("");
+      setLanguage("detect");
     }
   }
   if (!open) wasOpen.current = false;
@@ -111,19 +114,47 @@ export function UploadEpaperDialog({
       return;
     }
 
-    const tick = reduce ? 200 : 560;
-    for (let index = 1; index < STEPS.length; index += 1) {
-      await wait(tick);
-      if (runId.current !== id) return;
-      setStep(index);
-      setLive(STEPS[index]);
+    await wait(reduce ? 80 : 220);
+    if (runId.current !== id) return;
+    setStep(1);
+    setLive(STEPS[1]);
+
+    let brief: NewsBrief | null = null;
+    try {
+      brief = await readNewsBrief(file, language === "detect" ? undefined : language);
+    } catch {
+      brief = null;
     }
-    await wait(tick);
+    if (runId.current !== id) return;
+    if (!brief) {
+      setPhase("idle");
+      setFileLabel(null);
+      setError("That PDF could not be read. Try another export.");
+      setLive("That PDF could not be read.");
+      return;
+    }
+    setStep(2);
+    setLive(STEPS[2]);
+    await wait(reduce ? 80 : 240);
     if (runId.current !== id) return;
 
-    const mention = addUpload(file);
+    const mention = addUpload(file, brief);
+    if (language !== "detect") {
+      setLive(`Translating into ${language}`);
+      try {
+        updateMention(mention.id, await renderInLanguage(mention, language));
+      } catch {
+        if (runId.current !== id) return;
+        setPhase("idle");
+        setFileLabel(null);
+        setError(`Could not show this page in ${language}.`);
+        setLive(`Could not show this page in ${language}.`);
+        return;
+      }
+    }
+    if (runId.current !== id) return;
     setPhase("success");
-    setLive(`${file.name} is ready. Opening Digital Twin.`);
+    setLive(`${file.name} is ready. Opening the summary.`);
     clearPending();
     pending.current = window.setTimeout(() => {
       pending.current = null;
@@ -149,7 +180,7 @@ export function UploadEpaperDialog({
         <DialogHeader>
           <DialogTitle>Upload ePaper</DialogTitle>
           <DialogDescription>
-            Add a PDF from this browser. It opens in Digital Twin with a sample trace. Nothing is sent to a server.
+            Add a PDF from this browser. PrintPulse reads the page, then opens a short summary, the sentiment, and the original file.
           </DialogDescription>
         </DialogHeader>
         <p className="sr-only" aria-live="polite">
@@ -214,6 +245,22 @@ export function UploadEpaperDialog({
                   void acceptFile(file);
                 }}
               />
+              <label htmlFor="upload-ocr-language" className="mt-4 block text-xs font-medium text-muted-foreground">
+                OCR language
+                <select
+                  id="upload-ocr-language"
+                  value={language}
+                  onChange={(event) => setLanguage(event.target.value as Language | "detect")}
+                  className="mt-1.5 h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground"
+                >
+                  <option value="detect">Detect from the page</option>
+                  {PAGE_LANGUAGES.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.id} · {item.nativeName}
+                    </option>
+                  ))}
+                </select>
+              </label>
               {error && (
                 <p role="alert" className="mt-3 text-sm text-destructive">
                   {error}
@@ -284,7 +331,7 @@ export function UploadEpaperDialog({
                       Page is on the desk
                     </span>
                     <span className="mt-0.5 block text-sm text-[#4C1D95]/80 dark:text-accent-foreground/80">
-                      Opening Digital Twin…
+                      Opening the summary…
                     </span>
                   </span>
                 </div>

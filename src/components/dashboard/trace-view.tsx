@@ -30,8 +30,9 @@ export function TraceView() {
         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-violet">Digital Twin</p>
         <h1 className="mt-1 text-3xl font-semibold tracking-tight">Trace the page, not just the quote.</h1>
         <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-          Pick a mention. Walk alert, translation, OCR text, and the original page. The ids under the panel
-          are the chain of custody.
+          {active.previewUrl
+            ? "A short summary of the uploaded page, its sentiment, and the original PDF."
+            : "Pick a mention. Walk alert, translation, OCR text, and the original page. The ids under the panel are the chain of custody."}
         </p>
       </header>
       <div className="grid items-start gap-4 lg:grid-cols-[20rem_minmax(0,1fr)]">

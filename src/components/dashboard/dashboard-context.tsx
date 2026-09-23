@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_KEYWORDS, MENTIONS, SOURCES, TODAY } from "@/data/mock";
+import type { NewsBrief } from "@/lib/news-brief";
 import type { Language, Mention, Sentiment, Source, UploadRecord } from "@/types";
 import { buildUploadedMention } from "@/lib/uploaded-mention";
 import { dayKey } from "@/lib/utils";
@@ -36,7 +37,8 @@ type DashboardState = {
   toggleSource: (id: string) => void;
   addSource: (source: Source) => void;
   uploads: UploadRecord[];
-  addUpload: (file: File) => Mention;
+  addUpload: (file: File, brief: NewsBrief) => Mention;
+  updateMention: (id: string, patch: Partial<Mention>) => void;
 };
 
 const EMPTY: Filters = {
@@ -128,10 +130,10 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       ),
     addSource: (source) => setSources((current) => [source, ...current]),
     uploads,
-    addUpload: (file) => {
+    addUpload: (file, brief) => {
       const previewUrl = URL.createObjectURL(file);
       previewUrls.current.push(previewUrl);
-      const mention = buildUploadedMention(file, previewUrl);
+      const mention = buildUploadedMention(file, previewUrl, brief);
       const upload: UploadRecord = {
         id: mention.id,
         fileName: file.name,
@@ -143,13 +145,22 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       setUploads((current) => [upload, ...current]);
       return mention;
     },
+    updateMention: (id, patch) => {
+      setMentions((current) =>
+        current.map((mention) => (mention.id === id ? { ...mention, ...patch } : mention)),
+      );
+    },
   };
 
   return <DashboardContext.Provider value={value}>{children}</DashboardContext.Provider>;
 }
 
+export function useOptionalDashboard() {
+  return useContext(DashboardContext);
+}
+
 export function useDashboard() {
-  const ctx = useContext(DashboardContext);
+  const ctx = useOptionalDashboard();
   if (!ctx) throw new Error("useDashboard must be used inside DashboardProvider");
   return ctx;
 }
